@@ -1,0 +1,153 @@
+/* Enhanced Navigation Bar Animations */
+nav {
+    transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+nav.sticky {
+    animation: slideDown 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes slideDown {
+    from {
+        transform: translateY(-100%);
+        opacity: 0;
+    }
+    to {
+        transform: translateY(0);
+        opacity: 1;
+    }
+}
+
+/* Enhanced Link Animations */
+nav .container .rightBx .navBx .navlink a {
+    position: relative;
+    transition: all 0.3s ease;
+}
+
+nav .container .rightBx .navBx .navlink a::after {
+    content: '';
+    position: absolute;
+    bottom: -2px;
+    left: 50%;
+    width: 0;
+    height: 2px;
+    background: var(--yellow);
+    transition: all 0.3s ease;
+}
+
+nav .container .rightBx .navBx .navlink a:hover::after {
+    width: 100%;
+    left: 0;
+}
+
+/* Enhanced Button Animations */
+.signup_And_login_BtnBx .btn {
+    transform: translateY(0);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.signup_And_login_BtnBx .btn:hover {
+    transform: translateY(-2px);
+}
+
+/* Cart and Wishlist Icon Animations */
+.cart_Bx, .wishlist_Bx {
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.cart_Bx:hover, .wishlist_Bx:hover {
+    transform: scale(1.1);
+}
+
+/* Cart and Wishlist Number Badge Animation */
+@keyframes bounce {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.2); }
+}
+
+.cartNum, .wishlistNum {
+    animation: bounce 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Cart and Wishlist Slide Animations */
+.cart_slide, .wishlist_slide {
+    transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    transform: translateX(100%);
+}
+
+.cart_slide.active, .wishlist_slide.active {
+    transform: translateX(0);
+}
+
+/* Cart and Wishlist Item Animations */
+.cartMenu, .wishlistMenu {
+    opacity: 0;
+    transform: translateX(20px);
+    animation: slideIn 0.3s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+    animation-delay: calc(var(--item-index) * 0.1s);
+}
+
+@keyframes slideIn {
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+/* Mobile Menu Animations */
+@media screen and (max-width: 991px) {
+    .navBx {
+        transition: clip-path 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    
+    .burgerBar {
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .burgerBar.active {
+        transform: rotate(180deg);
+    }
+
+    .navBx .navlink {
+        opacity: 0;
+        transform: translateY(20px);
+        animation: fadeInUp 0.3s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+        animation-delay: calc(var(--item-index) * 0.1s);
+    }
+}
+
+@keyframes fadeInUp {
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* Enhanced Dropdown Animations */
+.dropdownBox {
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.dropdownBox ul li {
+    opacity: 0;
+    transform: translateY(10px);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.navlink:hover .dropdownBox ul li {
+    opacity: 1;
+    transform: translateY(0);
+    transition-delay: calc(var(--item-index) * 0.1s);
+}
+
+/* Cart and Wishlist Remove Animation */
+@keyframes removeItem {
+    to {
+        opacity: 0;
+        transform: translateX(-20px);
+    }
+}
+
+.removing {
+    animation: removeItem 0.3s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}

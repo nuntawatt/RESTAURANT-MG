@@ -1,0 +1,19 @@
+.swiper-button-next,
+.swiper-button-prev {
+    all: unset !important;          /* รีเซ็ตสไตล์ทั้งหมด */
+    cursor: pointer !important;
+}
+
+.swiper-button-next:after,
+.swiper-button-prev:after {
+    font-family: swiper-icons !important;
+    font-size: 24px !important;
+    color: #2d3436 !important;
+    opacity: 0.8 !important;
+    text-shadow: none !important;
+}
+
+.swiper-button-next:hover:after,
+.swiper-button-prev:hover:after {
+    opacity: 1 !important;
+}
