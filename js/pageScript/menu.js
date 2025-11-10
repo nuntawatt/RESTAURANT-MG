@@ -1,13 +1,56 @@
+// menu script loaded
+console.log('[menu] script loaded');
+
 // select
 let selectCategory = document.querySelector("#selectCategory")
 let selectRate = document.querySelector("#selectRate")
 // input search
 let getSearchInputValue = document.querySelector("#searchMenu")
 let getInputRecommendSearchContainer = document.querySelector(".menu .searchBox .inputSearchShow")
-let getParentSearchContainer = getInputRecommendSearchContainer.parentElement
+let getParentSearchContainer = getInputRecommendSearchContainer && getInputRecommendSearchContainer.parentElement
 let searchMenuBtn = document.querySelector('.searchMenuBtn')
 // show menu container
 let getShowMenuContainer = document.querySelector('.showMenuList')
+
+// basic DOM guard - if critical elements missing, stop and log useful info
+if(!getShowMenuContainer || !selectCategory || !getSearchInputValue){
+    console.error('[menu] critical DOM elements missing', {
+        showMenuList: !!getShowMenuContainer,
+        selectCategory: !!selectCategory,
+        searchMenu: !!getSearchInputValue,
+        inputRecommend: !!getInputRecommendSearchContainer
+    });
+    throw new Error('Menu script: critical DOM elements not found - aborting script');
+}
+
+// Delegated event handler for menu controls (works even if inline handlers are blocked)
+document.addEventListener('click', async (e) => {
+    const btn = e.target.closest('[data-action]');
+    if (!btn) return;
+    const action = btn.getAttribute('data-action');
+    const id = btn.getAttribute('data-id');
+
+    try {
+        if (action === 'view') {
+            // use menu id to open popup
+            const idx = changedMenuList.findIndex(m => m.id == id);
+            if (idx !== -1) showPopup(idx);
+        } else if (action === 'addCart') {
+            await addCartBtn(id);
+        } else if (action === 'addWishlist') {
+            await addWishlistBtn(id);
+        } else if (action === 'popupAddToCart') {
+            const index = btn.getAttribute('data-index');
+            if (index != null) await addMenuToCart(parseInt(index, 10));
+        }
+    } catch (err) {
+        console.error('Menu action handler error', err);
+    }
+});
+// Use a local API URL variable that won't redeclare a global const named API_URL
+// If a global `window.API_URL` exists (set by another script), use it; otherwise set a default.
+window.API_URL = window.API_URL || 'http://localhost:5000/api';
+const MENU_API_URL = window.API_URL;
 // popup control
 let menuPopupContainer = document.querySelector('.menuPopupContainer')
 
@@ -18,10 +61,56 @@ let allMenuList = []    // get all menu in json data
 let changedMenuList = []  // if user (select category) , (select rate) , (search menu)  this data will change
 
 // get data in json
+// Try server API first, then fallback to local JSON
 async function getAllMenuData(){
-    let getData = await fetch('/json/foodData.json')
-    let convertData = await getData.json()
-    allMenuList = convertData.allFood
+    // try backend API
+    try{
+    console.log('[menu] trying API fetch:', `${MENU_API_URL}/menu`);
+    const res = await fetch(`${MENU_API_URL}/menu`);
+        console.log('[menu] api response status:', res.status);
+        if(res.ok){
+            const data = await res.json();
+            console.log('[menu] api returned items:', Array.isArray(data) ? data.length : typeof data);
+            if(Array.isArray(data) && data.length > 0){
+                // map server menu items to expected shape
+                allMenuList = data.map(item => ({
+                    id: item._id,
+                    name: item.name,
+                    category: item.category,
+                    image: item.image,
+                    price: parseFloat(item.price),
+                    rate: item.rate ? parseFloat(item.rate) : 4
+                }))
+                console.log('[menu] loaded menu from API, count=', allMenuList.length);
+                return;
+            }
+        }
+    }catch(e){
+        console.warn('Could not fetch menu from API, falling back to local JSON', e)
+    }
+
+    // fallback to local JSON file
+    try{
+        console.log('[menu] trying local JSON fetch /json/foodData.json');
+        let getData = await fetch('/json/foodData.json')
+        if(!getData.ok){
+            console.warn('[menu] /json/foodData.json returned', getData.status, 'trying ./json/foodData.json');
+            getData = await fetch('./json/foodData.json');
+        }
+        let convertData = await getData.json()
+        allMenuList = convertData.allFood.map(item => ({
+            id: item.id,
+            name: item.name,
+            category: item.category,
+            image: item.image,
+            price: parseFloat(item.price),
+            rate: item.rate ? parseFloat(item.rate) : 4
+        }))
+        console.log('[menu] loaded menu from local JSON, count=', allMenuList.length);
+    }catch(err){
+        console.error('Failed to load local menu JSON', err)
+        allMenuList = []
+    }
 }
 
 getAllMenuData().then(() =>{
@@ -218,9 +307,9 @@ function displayMenuDataToBox(){
                       ${generateRateStarBox(data.rate)}
                  </div>
                  <div class="controlMenu">
-                    <div class="viewMenu" onclick="searchIndexMenuBeforeShowPopup(${data.id})"><i class='bx bx-show-alt'></i></div>
-                    <div class="addCart" onclick="addCartBtn(${data.id})"><i class='bx bx-cart-add' ></i></div>
-                    <div class="addWishlist" onclick="addWishlistBtn(${data.id})"><i class='bx bx-heart' ></i></div>
+                    <div class="viewMenu" data-action="view" data-id="${data.id}"><i class='bx bx-show-alt'></i></div>
+                    <div class="addCart" data-action="addCart" data-id="${data.id}"><i class='bx bx-cart-add' ></i></div>
+                    <div class="addWishlist" data-action="addWishlist" data-id="${data.id}"><i class='bx bx-heart' ></i></div>
                  </div>
             </div>
         </div>
@@ -228,6 +317,12 @@ function displayMenuDataToBox(){
             
         }).join('')
         getShowMenuContainer.innerHTML += createMenuBox
+        // ensure controls are clickable (in case some CSS sets pointer-events:none)
+        setTimeout(() => {
+            document.querySelectorAll('.menuItem, .controlMenu, .viewMenu, .addCart, .addWishlist').forEach(el => {
+                if (el && el.style) el.style.pointerEvents = 'auto';
+            });
+        }, 50);
     }else{
         let createAlertNotHaveMenuContent = `
         <div class="image"><img src="./image/nothavemenu.png" alt=""></div>
@@ -276,7 +371,7 @@ function showPopup(getMenuDataIndex){
                         <input type="number" placeholder="1" min="1" max="100" value="1" id="inputQty">
                         <div class="plusBtn" onclick="manageChangeQty('plus')">+</div>
                     </div>
-                    <button class="addToCartBtn" onclick="addMenuToCart(${getMenuDataIndex})">Add To Cart</button>
+                    <button class="addToCartBtn" data-action="popupAddToCart" data-index="${getMenuDataIndex}">Add To Cart</button>
                 </div>
              </div>
          </div>
@@ -334,30 +429,70 @@ function manageChangeQty(keyBtn){
 
 
 // ---------------- [CHECK TOKEN] -------------
-function checkUserTokenIsReal(getAllUserData){
-    let getToken = JSON.parse(localStorage.getItem('token')) || null
-    if(getToken == null && getAllUserData == null){
-        alertNotHaveAccount()
-        return false
-    }else{
-        // check token user is real
-        let userTokenReal = getAllUserData.filter((data) => data.id == getToken) 
-        if(userTokenReal.length == 0){
-            alertNotHaveAccount()
-            return false
-        }else{
-            return userTokenReal
+// Check token against backend profile endpoint. Returns user profile object or false.
+async function checkUserTokenIsReal(){
+    const token = localStorage.getItem('userToken');
+    if(!token){
+        alertNotHaveAccount();
+        return false;
+    }
+
+    try{
+        const res = await fetch('http://localhost:5000/api/users/profile', {
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
+
+        if(!res.ok){
+            // token invalid or expired
+            localStorage.removeItem('userToken');
+            alertNotHaveAccount();
+            return false;
         }
+
+        const user = await res.json();
+        return user;
+    }catch(err){
+        console.error('Auth check failed', err);
+        localStorage.removeItem('userToken');
+        alertNotHaveAccount();
+        return false;
     }
 }
 
+// Ensure local storage structure `userDataStorage` contains an entry for this user.
+function getOrCreateUserStorage(profile){
+    let allUsers = JSON.parse(localStorage.getItem('userDataStorage')) || [];
+    let userIndex = allUsers.findIndex(u => u.id == profile._id);
+    if(userIndex === -1){
+        const newUser = {
+            id: profile._id,
+            name: profile.name || '',
+            email: profile.email || '',
+            cart: [],
+            wishlist: []
+        };
+        allUsers.push(newUser);
+        localStorage.setItem('userDataStorage', JSON.stringify(allUsers));
+        return newUser;
+    }
+    return allUsers[userIndex];
+}
+
 // if user click add menu to cart (Add To Cart Btn)
-function addMenuToCart(getMenuDataIndex){
+async function addMenuToCart(getMenuDataIndex){
     let getInputValue = document.querySelector('#inputQty')
     let currentValue =  parseInt(getInputValue.value)
-    // get userData
+    // get user profile from server
+    const profile = await checkUserTokenIsReal();
+    if(!profile) return;
+
+    // ensure local user storage exists
     let getAllUserData = JSON.parse(localStorage.getItem("userDataStorage")) || null
-    let userTokenReal = checkUserTokenIsReal(getAllUserData)
+    let userStorage = getOrCreateUserStorage(profile);
+    // mimic previous array-based return by wrapping
+    let userTokenReal = [userStorage];
 
     if(currentValue > 100){
         Swal.fire({
@@ -382,57 +517,95 @@ function addMenuToCart(getMenuDataIndex){
         // get user data and token to check before add menu
         if(userTokenReal){
             // create data to get in local storage
-        let calculateSubTotal = changedMenuList[getMenuDataIndex].price * currentValue
-        let getUserCartData = userTokenReal[0].cart
-        let createMenuData = {
-            id:changedMenuList[getMenuDataIndex].id,
-            image:changedMenuList[getMenuDataIndex].image,
-            name:changedMenuList[getMenuDataIndex].name,
-            category:changedMenuList[getMenuDataIndex].category,
-            price:changedMenuList[getMenuDataIndex].price,
-            qty:parseInt(getInputValue.value),
-            subTotal:parseFloat(calculateSubTotal)
-        }
-            // if user cart not have data (first menu data)
-            if(getUserCartData.length == 0){
-                getUserCartData.push(createMenuData)
-                localStorage.setItem("userDataStorage",JSON.stringify(getAllUserData))
-                alertSuccessAddToCart()
-            }else{
-                // if cart have data we will check duplicate menu data (second data ++)
-                let checkDuplicateMenuInCart = getUserCartData.filter((data) => data.id == changedMenuList[getMenuDataIndex].id)
-                if(checkDuplicateMenuInCart.length == 0){
+            let calculateSubTotal = changedMenuList[getMenuDataIndex].price * currentValue
+            let getUserCartData = userTokenReal[0].cart
+            let createMenuData = {
+                id:changedMenuList[getMenuDataIndex].id,
+                image:changedMenuList[getMenuDataIndex].image,
+                name:changedMenuList[getMenuDataIndex].name,
+                category:changedMenuList[getMenuDataIndex].category,
+                price:changedMenuList[getMenuDataIndex].price,
+                qty:parseInt(getInputValue.value),
+                subTotal:parseFloat(calculateSubTotal)
+            }
+
+            // Try server-side add first
+            try{
+                const token = localStorage.getItem('userToken');
+                const res = await fetch(`${MENU_API_URL}/cart/add`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({ menuItemId: changedMenuList[getMenuDataIndex].id, quantity: parseInt(getInputValue.value), price: changedMenuList[getMenuDataIndex].price })
+                });
+                if (!res.ok) throw new Error('Server add to cart failed');
+                if (typeof showQtyMenuCart === 'function') showQtyMenuCart();
+                if (typeof showCartItem === 'function') showCartItem();
+                alertSuccessAddToCart();
+            } catch(err){
+                // fallback to local storage behavior
+                if(getUserCartData.length == 0){
                     getUserCartData.push(createMenuData)
-                    localStorage.setItem("userDataStorage",JSON.stringify(getAllUserData))
+                    let allUsers = JSON.parse(localStorage.getItem('userDataStorage')) || [];
+                    let idx = allUsers.findIndex(u => u.id == userTokenReal[0].id);
+                    if(idx === -1){
+                        allUsers.push(userTokenReal[0]);
+                    } else {
+                        allUsers[idx] = userTokenReal[0];
+                    }
+                    localStorage.setItem("userDataStorage",JSON.stringify(allUsers));
                     alertSuccessAddToCart()
                 }else{
-                    // update duplicate menu data and limit qty menu <= 100
-                    let checkQtyData = parseInt(checkDuplicateMenuInCart[0].qty) >= 100 ? 100 : parseInt(getInputValue.value) + parseInt(checkDuplicateMenuInCart[0].qty) >= 100 ? 100 : parseInt(getInputValue.value) + parseInt(checkDuplicateMenuInCart[0].qty)
-                    let updateData = {
-                        id:changedMenuList[getMenuDataIndex].id,
-                        image:changedMenuList[getMenuDataIndex].image,
-                        name:changedMenuList[getMenuDataIndex].name,
-                        category:changedMenuList[getMenuDataIndex].category,
-                        price:changedMenuList[getMenuDataIndex].price,
-                        qty:parseInt(checkQtyData),
-                        subTotal:parseFloat(calculateSubTotal) + parseFloat(checkDuplicateMenuInCart[0].subTotal)
-                    }             
-                    const findIndexMenu = getUserCartData.findIndex((data) => data.id == updateData.id)
-                    getUserCartData[findIndexMenu] = updateData
-                    // alert message user after user add menu item to cart
-                    if(parseInt(checkDuplicateMenuInCart[0].qty) >= 100){
-                        checkQtyData = 100
-                        alertWarningMaximumMenuInCart("max") 
+                    let checkDuplicateMenuInCart = getUserCartData.filter((data) => data.id == changedMenuList[getMenuDataIndex].id)
+                    if(checkDuplicateMenuInCart.length == 0){
+                        getUserCartData.push(createMenuData)
+                        let allUsers = JSON.parse(localStorage.getItem('userDataStorage')) || [];
+                        let idx = allUsers.findIndex(u => u.id == userTokenReal[0].id);
+                        if(idx === -1){
+                            allUsers.push(userTokenReal[0]);
+                        } else {
+                            allUsers[idx] = userTokenReal[0];
+                        }
+                        localStorage.setItem("userDataStorage",JSON.stringify(allUsers));
+                        alertSuccessAddToCart()
+                    }else{
+                        // update duplicate menu data and limit qty menu <= 100
+                        let checkQtyData = parseInt(checkDuplicateMenuInCart[0].qty) >= 100 ? 100 : parseInt(getInputValue.value) + parseInt(checkDuplicateMenuInCart[0].qty) >= 100 ? 100 : parseInt(getInputValue.value) + parseInt(checkDuplicateMenuInCart[0].qty)
+                        let updateData = {
+                            id:changedMenuList[getMenuDataIndex].id,
+                            image:changedMenuList[getMenuDataIndex].image,
+                            name:changedMenuList[getMenuDataIndex].name,
+                            category:changedMenuList[getMenuDataIndex].category,
+                            price:changedMenuList[getMenuDataIndex].price,
+                            qty:parseInt(checkQtyData),
+                            subTotal:parseFloat(calculateSubTotal) + parseFloat(checkDuplicateMenuInCart[0].subTotal)
+                        }             
+                        const findIndexMenu = getUserCartData.findIndex((data) => data.id == updateData.id)
+                        getUserCartData[findIndexMenu] = updateData
+                        // alert message user after user add menu item to cart
+                        if(parseInt(checkDuplicateMenuInCart[0].qty) >= 100){
+                            checkQtyData = 100
+                            alertWarningMaximumMenuInCart("max") 
+                        }
+                        else if(parseInt(getInputValue.value) + parseInt(checkDuplicateMenuInCart[0].qty) >= 100){
+                            checkQtyData = 100
+                            alertWarningMaximumMenuInCart("min",checkQtyData) 
+                        }
+                        else{
+                             checkQtyData = parseInt(getInputValue.value) + parseInt(checkDuplicateMenuInCart[0].qty)
+                             alertWarningMaximumMenuInCart("min",checkQtyData) 
+                        }     
+                        let allUsers = JSON.parse(localStorage.getItem('userDataStorage')) || [];
+                        let idx = allUsers.findIndex(u => u.id == userTokenReal[0].id);
+                        if(idx === -1){
+                            allUsers.push(userTokenReal[0]);
+                        } else {
+                            allUsers[idx] = userTokenReal[0];
+                        }
+                        localStorage.setItem("userDataStorage",JSON.stringify(allUsers));
                     }
-                    else if(parseInt(getInputValue.value) + parseInt(checkDuplicateMenuInCart[0].qty) >= 100){
-                        checkQtyData = 100
-                        alertWarningMaximumMenuInCart("min",checkQtyData) 
-                    }
-                    else{
-                         checkQtyData = parseInt(getInputValue.value) + parseInt(checkDuplicateMenuInCart[0].qty)
-                         alertWarningMaximumMenuInCart("min",checkQtyData) 
-                    }     
-                    localStorage.setItem("userDataStorage",JSON.stringify(getAllUserData))
                 }
             }
         }
@@ -497,9 +670,12 @@ function alertWarningMaximumMenuInCart(minMaxKey,qty = null){
 // ---------------------------------------------------------------------------
 //                   [ MANAGE ADD TO CART BTN] (Menu Box List BTN 2/3)
 // ---------------------------------------------------------------------------
-function addCartBtn(getMenuID){
+async function addCartBtn(getMenuID){
+    const profile = await checkUserTokenIsReal();
+    if(!profile) return;
     let getAllUserData = JSON.parse(localStorage.getItem("userDataStorage")) || null
-    let userTokenReal = checkUserTokenIsReal(getAllUserData)
+    let userStorage = getOrCreateUserStorage(profile);
+    let userTokenReal = [userStorage];
     // if have token we will get user cart to add new menu data
     if(userTokenReal){
         let getUserCartData = userTokenReal[0].cart
@@ -515,27 +691,46 @@ function addCartBtn(getMenuID){
             subTotal:changedMenuList[getMenuDataIndex].price
         }
 
-        if(checkMenuInCartHaveOrNot.length == 0){
-            Swal.fire({
-                title: "Would you like to add this food item to your shopping cart?",
-                icon: "warning",
-                showCancelButton: true,
-                confirmButtonColor: "#3085d6",
-                cancelButtonColor: "#d33",
-                confirmButtonText: "ok"
-              }).then((result) => {
-                if (result.isConfirmed) {
-                    getUserCartData.push(createMenuData)
-                    localStorage.setItem("userDataStorage",JSON.stringify(getAllUserData))
-                    Swal.fire({
-                        position: "center",
-                        icon: "success",
-                        title: "Successfully added food items to cart.",
-                        showConfirmButton: false,
-                        timer: 1500
-                      });
-                }
-              });
+    if(checkMenuInCartHaveOrNot.length == 0){
+            // Try server-side add first
+            try{
+                const token = localStorage.getItem('userToken');
+                const res = await fetch(`${MENU_API_URL}/cart/add`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({ menuItemId: changedMenuList[getMenuDataIndex].id, quantity: 1, price: changedMenuList[getMenuDataIndex].price })
+                });
+                if (!res.ok) throw new Error('Server add to cart failed');
+                if (typeof showQtyMenuCart === 'function') showQtyMenuCart();
+                if (typeof showCartItem === 'function') showCartItem();
+                Swal.fire({ position: "center", icon: "success", title: "Successfully added food items to cart.", showConfirmButton: false, timer: 1500 });
+            } catch(err){
+                // fallback to local storage behavior
+                Swal.fire({
+                    title: "Would you like to add this food item to your shopping cart?",
+                    icon: "warning",
+                    showCancelButton: true,
+                    confirmButtonColor: "#3085d6",
+                    cancelButtonColor: "#d33",
+                    confirmButtonText: "ok"
+                  }).then((result) => {
+                    if (result.isConfirmed) {
+                        getUserCartData.push(createMenuData)
+                        let allUsers = JSON.parse(localStorage.getItem('userDataStorage')) || [];
+                        let idx = allUsers.findIndex(u => u.id == userTokenReal[0].id);
+                        if(idx === -1){
+                            allUsers.push(userTokenReal[0]);
+                        } else {
+                            allUsers[idx] = userTokenReal[0];
+                        }
+                        localStorage.setItem("userDataStorage",JSON.stringify(allUsers))
+                        Swal.fire({ position: "center", icon: "success", title: "Successfully added food items to cart.", showConfirmButton: false, timer: 1500 });
+                    }
+                  });
+            }
         }else{
             Swal.fire({
                 position: "center",
@@ -551,54 +746,59 @@ function addCartBtn(getMenuID){
 // ---------------------------------------------------------------------------
 //                   [ MANAGE ADD TO WISHLIST BTN] (Menu Box List BTN 3/3)
 // ---------------------------------------------------------------------------
-function addWishlistBtn(getMenuID){
-    let getAllUserData = JSON.parse(localStorage.getItem("userDataStorage")) || null
-    let userTokenReal = checkUserTokenIsReal(getAllUserData)
-    // if have token we will get user cart to add new menu data
-    if(userTokenReal){
-        let getUserWishlistData = userTokenReal[0].wishlist
-        let getMenuDataIndex = changedMenuList.findIndex((data) => data.id == getMenuID)
-        let checkMenuInWishlistHaveOrNot = getUserWishlistData.filter((data) => data.id == getMenuID ) 
-        let createMenuData = {
-            id:changedMenuList[getMenuDataIndex].id,
-            image:changedMenuList[getMenuDataIndex].image,
-            name:changedMenuList[getMenuDataIndex].name,
-            category:changedMenuList[getMenuDataIndex].category,
-            price:changedMenuList[getMenuDataIndex].price,
-            qty:1,
-            subTotal:changedMenuList[getMenuDataIndex].price
-        }
-        if(checkMenuInWishlistHaveOrNot.length == 0){
-            Swal.fire({
-                title: "Would you like to add this food item to your wishlist.?",
-                icon: "warning",
-                showCancelButton: true,
-                confirmButtonColor: "#3085d6",
-                cancelButtonColor: "#d33",
-                confirmButtonText: "ok"
-              }).then((result) => {
-                if (result.isConfirmed) {
-                    // add menu to user wishlist
-                    getUserWishlistData.push(createMenuData)
-                    localStorage.setItem("userDataStorage",JSON.stringify(getAllUserData))
-                    Swal.fire({
-                        position: "center",
-                        icon: "success",
-                        title: "Successfully added food items to wishlist.",
-                        showConfirmButton: false,
-                        timer: 1500
-                      });
+async function addWishlistBtn(getMenuID){
+    const profile = await checkUserTokenIsReal();
+    if(!profile) return;
+
+    let userStorage = getOrCreateUserStorage(profile);
+    let getUserWishlistData = userStorage.wishlist;
+    let getMenuDataIndex = changedMenuList.findIndex((data) => data.id == getMenuID)
+    let checkMenuInWishlistHaveOrNot = getUserWishlistData.filter((data) => data.id == getMenuID ) 
+    let createMenuData = {
+        id:changedMenuList[getMenuDataIndex].id,
+        image:changedMenuList[getMenuDataIndex].image,
+        name:changedMenuList[getMenuDataIndex].name,
+        category:changedMenuList[getMenuDataIndex].category,
+        price:changedMenuList[getMenuDataIndex].price,
+        qty:1,
+        subTotal:changedMenuList[getMenuDataIndex].price
+    }
+    if(checkMenuInWishlistHaveOrNot.length == 0){
+        Swal.fire({
+            title: "Would you like to add this food item to your wishlist.?",
+            icon: "warning",
+            showCancelButton: true,
+            confirmButtonColor: "#3085d6",
+            cancelButtonColor: "#d33",
+            confirmButtonText: "ok"
+          }).then((result) => {
+            if (result.isConfirmed) {
+                // add menu to user wishlist
+                getUserWishlistData.push(createMenuData)
+                let allUsers = JSON.parse(localStorage.getItem('userDataStorage')) || [];
+                let idx = allUsers.findIndex(u => u.id == userStorage.id);
+                if(idx === -1){
+                    allUsers.push(userStorage);
+                } else {
+                    allUsers[idx] = userStorage;
                 }
-              });
-        }else{
-            Swal.fire({
-                position: "center",
-                icon: "warning",
-                title: "You already have this food item in your wishlist.",
-                showConfirmButton: false,
-                timer: 1500
-              });
-        }
-       
+                localStorage.setItem("userDataStorage",JSON.stringify(allUsers))
+                Swal.fire({
+                    position: "center",
+                    icon: "success",
+                    title: "Successfully added food items to wishlist.",
+                    showConfirmButton: false,
+                    timer: 1500
+                  });
+            }
+          });
+    }else{
+        Swal.fire({
+            position: "center",
+            icon: "warning",
+            title: "You already have this food item in your wishlist.",
+            showConfirmButton: false,
+            timer: 1500
+          });
     }
 }

@@ -1,11 +1,23 @@
-let generateNavigationBar = document.querySelector('nav')
+let generateNavigationBar = null;
+
+// Base API URL used by navbar functions (ensure defined before any fetch calls)
+const API_URL = 'http://localhost:5000/api';
+
+function ensureNav() {
+        if (!generateNavigationBar) {
+                generateNavigationBar = document.querySelector('nav');
+        }
+        return generateNavigationBar;
+}
 
 function stickBar(){
-    if (window.pageYOffset >= 30) {
-        generateNavigationBar.classList.add("sticky")
-      } else {
-        generateNavigationBar.classList.remove("sticky");
-      }
+        const nav = ensureNav();
+        if (!nav) return;
+        if (window.pageYOffset >= 30) {
+                nav.classList.add("sticky")
+            } else {
+                nav.classList.remove("sticky");
+            }
 }
 
 async function checkToken() {
@@ -37,17 +49,73 @@ async function manageShowBtnNavigationBar(){
     const haveToken = await checkToken();   // ✅ ต้อง await
     const getSignupAndLoginBtnBox = document.querySelector(".signup_And_login_BtnBx");
     const getAuthenticationBtnBox = document.querySelector(".authentication_uer_box");
-    if(haveToken){
-        getAuthenticationBtnBox.classList.add("haveToken");
-        getSignupAndLoginBtnBox.classList.add("haveToken");
-    }else{
-        getSignupAndLoginBtnBox.classList.remove("haveToken");
-        getAuthenticationBtnBox.classList.remove("haveToken");
+    const userMenuBox = document.querySelector('.user_menu_box');
+    const userDropdown = userMenuBox ? userMenuBox.querySelector('.user_dropdown') : null;
+
+    // Helper to restore default dropdown HTML
+    const defaultUserDropdownHTML = `
+                    <a href="login.html" class="login-link">
+                        <i class='bx bx-log-in'></i> Login
+                    </a>
+                    <a href="signup.html" class="signup-link">
+                        <i class='bx bx-user-plus'></i> Sign Up
+                    </a>
+                    <div class="dropdown-divider"></div>
+                    <a href="member.html" class="member-link">
+                        <i class='bx bx-crown'></i> Membership
+                    </a>`;
+
+    if (haveToken) {
+        // safe guards in case elements don't exist in some pages
+        if (getAuthenticationBtnBox) getAuthenticationBtnBox.classList.add("haveToken");
+        if (getSignupAndLoginBtnBox) getSignupAndLoginBtnBox.classList.add("haveToken");
+
+        // Update user dropdown to show username and logout
+        if (userDropdown && haveToken[0]) {
+            const displayName = haveToken[0].name || haveToken[0].email || 'Account';
+            userDropdown.innerHTML = `
+                <p class="user-greet">Hello, ${displayName}</p>
+                <a href="/member.html" class="member-link">
+                    <i class='bx bx-crown'></i> Membership
+                </a>
+                <a href="#" class="logout-link" id="logoutLink">
+                    <i class='bx bx-log-out'></i> Logout
+                </a>
+            `;
+
+            // wire logout
+            const logoutLink = document.getElementById('logoutLink');
+            if (logoutLink) {
+                logoutLink.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    logoutUser();
+                });
+            }
+        }
+    } else {
+        if (getSignupAndLoginBtnBox) getSignupAndLoginBtnBox.classList.remove("haveToken");
+        if (getAuthenticationBtnBox) getAuthenticationBtnBox.classList.remove("haveToken");
+        if (userDropdown) userDropdown.innerHTML = defaultUserDropdownHTML;
+    }
+}
+
+// Logout helper used by the dropdown
+function logoutUser() {
+    try {
+        localStorage.removeItem('userToken');
+        // also remove any legacy token key if present
+        localStorage.removeItem('token');
+        // reload to update UI
+        window.location.reload();
+    } catch (error) {
+        console.error('Logout failed', error);
     }
 }
 
 function generateNavigation(){
-  generateNavigationBar.innerHTML = `
+    const nav = ensureNav();
+    if (!nav) return;
+    nav.innerHTML = `
   <div class="container">
             <a href="" class="logo">
                 <img src="./image/logo.png" alt=""> <p>KITCHEN</p></a>
@@ -150,8 +218,8 @@ function generateNavigation(){
           </div>
         </div>
   `
-  //the function will manage display (signup, login, account, cart, wishlist) btn in right navbar 
-  manageShowBtnNavigationBar()
+    //the function will manage display (signup, login, account, cart, wishlist) btn in right navbar 
+    manageShowBtnNavigationBar()
 }
 
 // Handle User Menu Dropdown
@@ -249,13 +317,15 @@ async function showQtyMenuCart() {
             if (!response.ok) throw new Error('Failed to fetch cart');
 
             const cartData = await response.json();
-            const totalQty = cartData.items.reduce((sum, item) => sum + item.quantity, 0);
-            
+            const totalQty = (cartData.items || []).reduce((sum, item) => sum + (item.quantity || 0), 0);
+
             const cartNum = document.querySelector('.cartNum');
             if (cartNum) {
                 cartNum.innerHTML = totalQty;
                 if (totalQty > 0) {
                     cartNum.classList.add('has-items');
+                } else {
+                    cartNum.classList.remove('has-items');
                 }
             }
         } catch (error) {
@@ -282,25 +352,39 @@ async function showCartItem() {
             const subTotalMenuBx = document.querySelector('nav .cart_slide .showTotalMenu .price');
 
             if (cartContainer) {
-                const subTotal = cartData.items.reduce((sum, item) => 
-                    sum + (parseFloat(item.price) * item.quantity), 0);
+                const items = cartData.items || [];
+                const subTotal = items.reduce((sum, item) => {
+                    const unitPrice = item.price || (item.menuItem && item.menuItem.price) || 0;
+                    const qty = item.quantity || 0;
+                    return sum + (parseFloat(unitPrice) * qty);
+                }, 0);
 
-                // Create cart items with animation
-                const cartHTML = cartData.items.map((item, index) => `
-                    <div class="cartMenu" id=${item._id} 
-                         style="animation: fadeIn 0.3s ease-out forwards ${index * 0.1}s">
-                        <div class="image"><img src=${item.image} alt="${item.name}"></div>
-                        <div class="content">
-                            <div class="menuName">
-                                <p class="name">${item.name}</p>
-                                <p class="category">${item.category}</p>
+                // Create cart items with animation — support populated menuItem shape or legacy flat shape
+                const cartHTML = items.map((item, index) => {
+                    const id = item._id || (item.menuItem && item.menuItem._id) || '';
+                    const name = (item.menuItem && item.menuItem.name) || item.name || '';
+                    const category = (item.menuItem && item.menuItem.category) || item.category || '';
+                    const image = (item.menuItem && item.menuItem.image) || item.image || './image/menuImg/burger1.png';
+                    const unitPrice = item.price || (item.menuItem && item.menuItem.price) || 0;
+                    const qty = item.quantity || 0;
+                    const lineTotal = (parseFloat(unitPrice) * qty) || 0;
+
+                    return `
+                        <div class="cartMenu" id=${id} 
+                             style="animation: fadeIn 0.3s ease-out forwards ${index * 0.1}s">
+                            <div class="image"><img src=${image} alt="${name}"></div>
+                            <div class="content">
+                                <div class="menuName">
+                                    <p class="name">${name}</p>
+                                    <p class="category">${category}</p>
+                                </div>
+                                <p class="quantity">x ${qty}</p>
+                                <p class="price">$ ${lineTotal.toFixed(2)}</p>
+                                <i class='bx bxs-trash' onclick="cancelMenuItem('${id}')"></i>
                             </div>
-                            <p class="quantity">x ${item.quantity}</p>
-                            <p class="price">$ ${(item.price * item.quantity).toFixed(2)}</p>
-                            <i class='bx bxs-trash' onclick="cancelMenuItem('${item._id}')"></i>
                         </div>
-                    </div>
-                `).join('');
+                    `;
+                }).join('');
 
                 cartContainer.innerHTML = cartHTML;
                 if (subTotalMenuBx) {
@@ -392,13 +476,18 @@ async function cancelWishlist(getWishlistID){
                     wishlistItem.style.transform = 'translateX(-20px)';
                 }
 
-                // Remove item from wishlist through API
-                await fetch(`${API_URL}/wishlist/remove/${getWishlistID}`, {
-                    method: 'DELETE',
-                    headers: {
-                        'Authorization': `Bearer ${restaurantAPI.auth.getToken()}`
+                // Remove item from localStorage wishlist (backend wishlist not implemented)
+                const token = localStorage.getItem('userToken');
+                const profileRes = await fetch('http://localhost:5000/api/users/profile', { headers: { 'Authorization': `Bearer ${token}` } });
+                if (profileRes.ok) {
+                    const profile = await profileRes.json();
+                    let allUsers = JSON.parse(localStorage.getItem('userDataStorage')) || [];
+                    const userIndex = allUsers.findIndex(u => u.id == profile._id);
+                    if (userIndex !== -1) {
+                        allUsers[userIndex].wishlist = (allUsers[userIndex].wishlist || []).filter(i => i.id != getWishlistID);
+                        localStorage.setItem('userDataStorage', JSON.stringify(allUsers));
                     }
-                });
+                }
 
                 // Wait for animation
                 await new Promise(r => setTimeout(r, 300));
@@ -432,15 +521,19 @@ async function cancelWishlist(getWishlistID){
 
 // --------------[ Wishlist Num ]-------------------
 async function showQtyMenuWishlist(){
-    if(await checkToken()){
+    if (await checkToken()) {
         try {
-            const response = await fetch(`${API_URL}/wishlist`, {
-                headers: {
-                    'Authorization': `Bearer ${restaurantAPI.auth.getToken()}`
-                }
-            });
-            const wishlistData = await response.json();
-            navAnimations.updateWishlistBadge(wishlistData.items.length);
+            // Build wishlist count from localStorage where wishlist is stored per-user
+            const token = localStorage.getItem('userToken');
+            const profileRes = await fetch('http://localhost:5000/api/users/profile', { headers: { 'Authorization': `Bearer ${token}` } });
+            if (!profileRes.ok) return;
+            const profile = await profileRes.json();
+            const allUsers = JSON.parse(localStorage.getItem('userDataStorage')) || [];
+            const localUser = allUsers.find(u => u.id == profile._id) || { wishlist: [] };
+            const count = (localUser.wishlist && localUser.wishlist.length) ? localUser.wishlist.length : 0;
+            if (window.navAnimations && typeof navAnimations.updateWishlistBadge === 'function') {
+                navAnimations.updateWishlistBadge(count);
+            }
         } catch (error) {
             console.error('Error fetching wishlist count:', error);
         }
@@ -449,16 +542,15 @@ async function showQtyMenuWishlist(){
 
 // --------- [Show Wishlist Item] -------------------
 async function showWishlistItem(){
-    if(await checkToken()){ 
+    if (await checkToken()) {
         try {
-            const response = await fetch(`${API_URL}/wishlist`, {
-                headers: {
-                    'Authorization': `Bearer ${restaurantAPI.auth.getToken()}`
-                }
-            });
-            const wishlistData = await response.json();
+            const token = localStorage.getItem('userToken');
+            const profileRes = await fetch('http://localhost:5000/api/users/profile', { headers: { 'Authorization': `Bearer ${token}` } });
+            if (!profileRes.ok) return;
+            const profile = await profileRes.json();
+            const allUsers = JSON.parse(localStorage.getItem('userDataStorage')) || [];
+            const localUser = allUsers.find(u => u.id == profile._id) || { wishlist: [] };
             const wishlistContainer = document.querySelector('nav .wishlist_slide .wishlist_detail');
-            
             if (!wishlistContainer) return;
 
             // Remove existing items with animation
@@ -470,15 +562,15 @@ async function showWishlistItem(){
             // Wait for animations to complete
             await new Promise(r => setTimeout(r, existingItems.length * 100 + 300));
 
-            // Create and add new items with animation
-            wishlistContainer.innerHTML = wishlistData.items.map((item, index) => `
+            // Create and add new items with animation from localUser.wishlist
+            wishlistContainer.innerHTML = (localUser.wishlist || []).map((item, index) => `
                 <div class="wishlistMenu" id=${item.id} style="animation: fadeIn 0.3s cubic-bezier(0.4, 0, 0.2, 1) forwards ${index * 0.1}s">
                     <div class="image"><img src=${item.image} alt=""></div>
                     <div class="content">
                         <div class="menuName">
                             <p class="name">${item.name}</p>
                             <p class="category">${item.category}</p>
-                            <p class="price">$${item.price.toFixed(2)}</p>
+                            <p class="price">$${(item.price || 0).toFixed(2)}</p>
                         </div>
                         <div class="cancel_wishlist" onclick="cancelWishlist(${item.id})">
                             <i class='bx bx-x'></i>
@@ -504,37 +596,7 @@ async function showWishlistItem(){
 }
 
 // --------- [Cancel Wishlist Item] -------------------
-function cancelWishlist(getWishlistID){
-  if(checkToken()){
-    let getUserData = checkToken()
-
-    Swal.fire({
-        title: "Do you want to cancel this food item in your wishlist? ",
-        icon: "warning",
-        showCancelButton: true,
-        confirmButtonColor: "#3085d6",
-        cancelButtonColor: "#d33",
-        confirmButtonText: "Yes"
-      }).then((result) => {
-        if (result.isConfirmed) {
-            let getUserWishlist = getUserData[0].wishlist
-            let cancelWishlistItem = getUserWishlist.filter((data) => data.id != getWishlistID)
-            let getAllUserData = JSON.parse(localStorage.getItem("userDataStorage")) || null
-            let findUserDataIndex = getAllUserData.findIndex((data) => data.id == getUserData[0].id)
-            getAllUserData[findUserDataIndex].wishlist = cancelWishlistItem
-            
-            localStorage.setItem("userDataStorage" , JSON.stringify(getAllUserData))
-        
-          Swal.fire({
-            title: "Cancel Success!",
-            text: "Your menu has been cancelled.",
-            icon: "success"
-          });
-        }
-      });
-}
-
-  }
+// Note: legacy cancelWishlist removed. use async cancelWishlist defined above which calls the API.
 
 
 

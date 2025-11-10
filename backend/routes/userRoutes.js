@@ -15,7 +15,8 @@ const generateToken = (id) => {
 // Register new user
 router.post('/register', async (req, res) => {
     try {
-        const { name, email, password } = req.body;
+        // Accept either name or firstName/lastName from frontend
+        const { name, firstName, lastName, email, password, phone } = req.body;
 
         // Check if user exists
         const userExists = await User.findOne({ email });
@@ -27,11 +28,17 @@ router.post('/register', async (req, res) => {
         const salt = await bcrypt.genSalt(10);
         const hashedPassword = await bcrypt.hash(password, salt);
 
-        // Create user
+        // Compose a name value if first/last provided
+        const composedName = name || (firstName || lastName ? `${firstName || ''} ${lastName || ''}`.trim() : undefined);
+
+        // Create user (store firstName/lastName/phone for future use)
         const user = await User.create({
-            name,
+            name: composedName,
+            firstName: firstName || undefined,
+            lastName: lastName || undefined,
             email,
             password: hashedPassword,
+            phone: phone || undefined
         });
 
         if (user) {
@@ -41,8 +48,11 @@ router.post('/register', async (req, res) => {
                 email: user.email,
                 token: generateToken(user._id),
             });
+        } else {
+            res.status(400).json({ message: 'Invalid user data' });
         }
     } catch (error) {
+        // If there's a Mongo duplicate key error or validation error, send back message
         res.status(400).json({ message: error.message });
     }
 });
